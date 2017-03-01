@@ -11,9 +11,7 @@ Decouple two carriages:
 4) Place the coupler rail back
 --]]
 function decouple(carriage1, carriage2, rail)
-  game.print("Time to decouple")
-  game.print(carriage1==nil)
-  game.print(carriage2==nil)
+  debug_print("Time to decouple")
 
   function dist_sq(ent1, ent2)
     return (ent1.position.x-ent2.position.x)^2+(ent1.position.y-ent2.position.y)^2
@@ -29,9 +27,18 @@ function decouple(carriage1, carriage2, rail)
   global.to_remove[#global.to_remove+1] = rail.unit_number
   rail.destroy()
 
-  copy_carriage(global.dummies[1], pose)
+  local new_carriage = copy_carriage(global.dummies[1], pose)
 
-  new_coupler = game.surfaces.nauvis.create_entity{name="coupler-rail", 
+  -- return both trains to automatic mode
+  advance_station(new_carriage.train)
+  for _,carriage in pairs({carriage1, carriage2}) do
+    if carriage.valid then
+      advance_station(carriage.train)
+      break
+    end
+  end
+
+  local new_coupler = game.surfaces.nauvis.create_entity{name="coupler-rail", 
         position=coupler_pose.pos, direction=coupler_pose.dir, force=coupler_force}
   global.coupler_rails[new_coupler.unit_number] = new_coupler
 end
@@ -42,7 +49,7 @@ Couple two carriages:
 2) Restore and place the wagons in the correct order so that connections are made
 --]]
 function couple(carriage1, carriage2)
-  game.print("time to couple")
+  debug_print("time to couple")
 
   -- choose the smaller train
   local near_carriage;
@@ -61,10 +68,8 @@ function couple(carriage1, carriage2)
   local initial, final, step;
   if near_carriage == near_carriage.train.front_stock then
     initial, final, step = 2, #carriages_to_recreate, 1
-    debug_print("Forward")
   elseif near_carriage == near_carriage.train.back_stock then
     initial, final, step = #carriages_to_recreate-1, 1, -1
-    debug_print("Backward")
   else
     debug_print("Near carriage isn't front or back of train")
     return
@@ -84,12 +89,13 @@ function couple(carriage1, carriage2)
     new_pose = {pos=carriage.position, orient=carriage.orientation}
     carriage.destroy()
 
-    temp = copy_carriage(global.dummies[dummy_i], last_pose)
+    copy_carriage(global.dummies[dummy_i], last_pose)
 
     last_pose = new_pose
   end
 
-  temp = copy_carriage(global.dummies[3-dummy_i], last_pose)
+  last_carriage = copy_carriage(global.dummies[3-dummy_i], last_pose)
+  advance_station(last_carriage.train)
 end
 
 -- copy all properties of one carriage to another. 
@@ -124,7 +130,8 @@ function copy_carriage(source, target)
     end
   end
 
-  if source.train.schedule ~= {} then
+  -- only copy non-empty locomotive schedules
+  if next(source.train.schedule) ~= nil and source.type == "locomotive" then
     target.train.schedule = source.train.schedule
   end
   target.health = source.health
@@ -143,6 +150,23 @@ function copy_carriage(source, target)
   end
 
   return target
+end
+
+-- send a train to the next station on its schedule
+-- if there's only one station on the schedule, set it to manual to avoid infinite loop
+function advance_station(train)
+  debug_print("advance",math.random())
+  local schedule = train.schedule
+  if #train.locomotives.front_movers + #train.locomotives.back_movers > 0 and #schedule.records > 1 then
+    schedule.current = (schedule.current)% #schedule.records + 1
+    train.schedule = schedule
+
+    train.manual_mode = false
+    debug_print("manual set to false")
+  else
+    debug_print("manual set to true")
+    train.manual_mode = true
+  end
 end
 
 -- determine which "direction" to specify for create_entity to achieve a certain orientation
@@ -227,29 +251,29 @@ script.on_init(on_init)
 
 function on_train_change(event)
   local train = event.train
+  debug_print("Train change: State ",train.state, " Speed: ",train.speed," Mode: ",train.manual_mode)
   if train.state == defines.train_state.wait_station and train.speed == 0 then
     for id,coupler_rail in pairs(global.coupler_rails) do
       if not coupler_rail.valid then
         global.to_remove[#global.to_remove+1] = id
       else
         -- use connection_direction.none?
-        neighbor1 = coupler_rail.get_connected_rail{rail_direction = defines.rail_direction.front,
+        local neighbor1 = coupler_rail.get_connected_rail{rail_direction = defines.rail_direction.front,
                                                     rail_connection_direction = defines.rail_connection_direction.straight}
-        neighbor2 = coupler_rail.get_connected_rail{rail_direction = defines.rail_direction.back,
+        local neighbor2 = coupler_rail.get_connected_rail{rail_direction = defines.rail_direction.back,
                                                     rail_connection_direction = defines.rail_connection_direction.straight}
-        local surf = game.surfaces[1]
-        carriage1 = surf.find_entities_filtered{position=neighbor1.position, type="cargo-wagon", limit=1}[1] or
+        local surf = game.surfaces.nauvis
+        local carriage1 = surf.find_entities_filtered{position=neighbor1.position, type="cargo-wagon", limit=1}[1] or
                           surf.find_entities_filtered{position=neighbor1.position, type="locomotive", limit=1}[1]
 
-        carriage2 = surf.find_entities_filtered{position=neighbor2.position, type="cargo-wagon", limit=1}[1] or
+        local carriage2 = surf.find_entities_filtered{position=neighbor2.position, type="cargo-wagon", limit=1}[1] or
                           surf.find_entities_filtered{position=neighbor2.position, type="locomotive", limit=1}[1]
 
         -- we're not at a coupling
         if not carriage1 or not carriage2 or carriage1 == carriage2 then
-          return
-        end
+          debug_print("Not at a coupling")
 
-        if carriage1.train == train or carriage2.train == train then
+        elseif carriage1.train == train or carriage2.train == train then
 
           -- are the cars coupled already?
           if carriage1.train == carriage2.train then
@@ -273,6 +297,4 @@ end
 script.on_event(defines.events.on_train_changed_state, on_train_change)
 
 --TODO 
--- copy_settings
 -- move player
--- restore schedulesds 
