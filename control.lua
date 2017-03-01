@@ -124,7 +124,9 @@ function copy_carriage(source, target)
     end
   end
 
-  target.train.schedule = source.train.schedule
+  if source.train.schedule ~= {} then
+    target.train.schedule = source.train.schedule
+  end
   target.health = source.health
   target.force = source.force
 
@@ -153,6 +155,7 @@ function orientation_to_direction(orientation)
 end
 
 -- copy an inventory with filters and bar
+-- settings could be copied with entity.copy_settings, but that prevents selective copying
 function copy_inventory(source, target)
   -- copy contents
   for i=1,#source do
