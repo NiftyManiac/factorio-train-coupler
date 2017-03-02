@@ -18,7 +18,7 @@ function decouple(carriage1, carriage2, rail)
   end
 
   local closest_carriage = dist_sq(carriage1, rail) < dist_sq(carriage2, rail) and carriage1 or carriage2
-  local pose = {pos=closest_carriage.position, orient=closest_carriage.orientation}
+  local car_info = carriage_info(closest_carriage)
   copy_carriage(closest_carriage, global.dummies[1])
   closest_carriage.destroy()
 
@@ -27,7 +27,7 @@ function decouple(carriage1, carriage2, rail)
   global.to_remove[#global.to_remove+1] = rail.unit_number
   rail.destroy()
 
-  local new_carriage = copy_carriage(global.dummies[1], pose)
+  local new_carriage = copy_carriage(global.dummies[1], car_info)
 
   -- return both trains to automatic mode
   advance_station(new_carriage.train)
@@ -76,8 +76,8 @@ function couple(carriage1, carriage2)
   end
 
   copy_carriage(near_carriage, global.dummies[1])
-  local last_pose = {pos=near_carriage.position, orient=near_carriage.orientation}
-  local new_pose = last_pose
+  local last_info = carriage_info(near_carriage)
+  local new_info = last_info
   near_carriage.destroy()
 
   local dummy_i = 2
@@ -86,31 +86,37 @@ function couple(carriage1, carriage2)
     local carriage = carriages_to_recreate[i]
     copy_carriage(carriage, global.dummies[dummy_i])
     dummy_i = 3-dummy_i -- cycle between 1 and 2
-    new_pose = {pos=carriage.position, orient=carriage.orientation}
+    new_info = carriage_info(carriage)
     carriage.destroy()
 
-    copy_carriage(global.dummies[dummy_i], last_pose)
+    copy_carriage(global.dummies[dummy_i], last_info)
 
-    last_pose = new_pose
+    last_info = new_info
   end
 
-  last_carriage = copy_carriage(global.dummies[3-dummy_i], last_pose)
+  last_carriage = copy_carriage(global.dummies[3-dummy_i], last_info)
   advance_station(last_carriage.train)
 end
 
+-- Record the information that can't be copied to the dummy plane
+function carriage_info(carriage)
+  return {pos=carriage.position, orient=carriage.orientation, pass=carriage.passenger}
+end
+
 -- copy all properties of one carriage to another. 
+-- passengers are moved to the target.
 -- target may be:
 --  an entity to replace
---  a pose on nauvis: target={pos={x,y},orient=orient}
+--  a target on nauvis: target_info={pos={x,y}, orient=orient, pass=passenger}
 -- return the new carriage
 function copy_carriage(source, target)
   if source.name ~= target.name then
-    local pose, surf, dummy_i;
-    if target.name == nil then -- passed a pose
-      pose = target
+    local target_info, surf, dummy_i;
+    if target.name == nil then -- passed a set of target info
+      target_info = target
       surf = game.surfaces["nauvis"]
     else -- passed an entity
-      pose = {pos=target.position, orient=target.orientation}
+      target_info = {pos=target.position, orient=target.orientation}
       surf = target.surface
 
       -- if we delete a dummy, make sure we update the reference
@@ -123,8 +129,10 @@ function copy_carriage(source, target)
       target.destroy()
     end
 
-    local dir = orientation_to_direction(pose.orient)
-    target = surf.create_entity{name=source.name, force=source.force, position=pose.pos, direction=dir} 
+    local dir = orientation_to_direction(target_info.orient)
+    target = surf.create_entity{name=source.name, force=source.force, position=target_info.pos, direction=dir} 
+    target.passenger = target_info.pass
+
     if dummy_i then
       global.dummies[dummy_i] = target
     end
@@ -257,29 +265,46 @@ function on_train_change(event)
       if not coupler_rail.valid then
         global.to_remove[#global.to_remove+1] = id
       else
-        -- use connection_direction.none?
-        local neighbor1 = coupler_rail.get_connected_rail{rail_direction = defines.rail_direction.front,
-                                                    rail_connection_direction = defines.rail_connection_direction.straight}
-        local neighbor2 = coupler_rail.get_connected_rail{rail_direction = defines.rail_direction.back,
-                                                    rail_connection_direction = defines.rail_connection_direction.straight}
+        local carriages = {}
         local surf = game.surfaces.nauvis
-        local carriage1 = surf.find_entities_filtered{position=neighbor1.position, type="cargo-wagon", limit=1}[1] or
-                          surf.find_entities_filtered{position=neighbor1.position, type="locomotive", limit=1}[1]
+        for i,dir in ipairs({defines.rail_direction.front, defines.rail_direction.back}) do
+          -- find next carriage in selected direction
+          for _,con_dir in ipairs({defines.rail_connection_direction.straight,
+                                  defines.rail_connection_direction.left,
+                                  defines.rail_connection_direction.right}) do
+            local rail = coupler_rail.get_connected_rail{rail_direction=dir, rail_connection_direction=con_dir}
 
-        local carriage2 = surf.find_entities_filtered{position=neighbor2.position, type="cargo-wagon", limit=1}[1] or
-                          surf.find_entities_filtered{position=neighbor2.position, type="locomotive", limit=1}[1]
+            local carriage = rail and (surf.find_entities_filtered{position=rail.position, type="cargo-wagon", limit=1}[1] or
+                             surf.find_entities_filtered{position=rail.position, type="locomotive", limit=1}[1])
+            if carriage then
+              carriages[i] = carriage
+              break
+            end
+          end
+        end
+
 
         -- we're not at a coupling
-        if not carriage1 or not carriage2 or carriage1 == carriage2 then
-          debug_print("Not at a coupling")
+        if not carriages[1] or not carriages[2] or carriages[1] == carriages[2] then
+          debug_print("Not at a coupling",math.random())
+          debug_print("A",carriages[1]==nil,math.random())
+          debug_print("B",carriages[2]==nil,math.random())
+          debug_print("C",carriages[2]==carriages[1],math.random())
 
-        elseif carriage1.train == train or carriage2.train == train then
+        elseif carriages[1].train == train or carriages[2].train == train then
 
           -- are the cars coupled already?
-          if carriage1.train == carriage2.train then
-            decouple(carriage1, carriage2, coupler_rail)
+          if carriages[1].train == carriages[2].train then
+            decouple(carriages[1], carriages[2], coupler_rail)
           else
-            couple(carriage1, carriage2)
+            couple(carriages[1], carriages[2])
+          end
+
+          -- just in case anyone gets stuck on the dummy plane, move them back to nauvis
+          for _,player in pairs(game.players) do
+            if player.surface == game.surfaces.train_coupler_dummy then
+              player.teleport{position={0,0}, surface="nauvis"}
+            end
           end
 
         end
@@ -298,3 +323,4 @@ script.on_event(defines.events.on_train_changed_state, on_train_change)
 
 --TODO 
 -- move player
+-- 
