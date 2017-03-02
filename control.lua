@@ -45,15 +45,15 @@ end
 
 --[[
 Couple two carriages:
-1) Save and destroy the shorter of the trains
+1) Save and destroy one of the trains
 2) Restore and place the wagons in the correct order so that connections are made
 --]]
 function couple(carriage1, carriage2)
   debug_print("time to couple")
 
-  -- choose the smaller train
+  -- choose the train with fewer locomotives
   local near_carriage;
-  if #carriage1.train.carriages < #carriage2.train.carriages then
+  if num_locos(carriage1.train) < num_locos(carriage2.train) then
     near_carriage = carriage1
   else
     near_carriage = carriage2
@@ -165,7 +165,7 @@ end
 function advance_station(train)
   debug_print("advance",math.random())
   local schedule = train.schedule
-  if #train.locomotives.front_movers + #train.locomotives.back_movers > 0 and #schedule.records > 1 then
+  if num_locos(train) > 0 and #schedule.records > 1 then
     schedule.current = (schedule.current)% #schedule.records + 1
     train.schedule = schedule
 
@@ -184,6 +184,11 @@ function orientation_to_direction(orientation)
   else
     return defines.direction.east
   end 
+end
+
+-- count number of locomotives in a train
+function num_locos(train)
+  return #train.locomotives.front_movers + #train.locomotives.back_movers
 end
 
 -- copy an inventory with filters and bar
@@ -283,7 +288,6 @@ function on_train_change(event)
           end
         end
 
-
         -- we're not at a coupling
         if not carriages[1] or not carriages[2] or carriages[1] == carriages[2] then
           debug_print("Not at a coupling",math.random())
@@ -320,7 +324,3 @@ function on_train_change(event)
 end
 
 script.on_event(defines.events.on_train_changed_state, on_train_change)
-
---TODO 
--- move player
--- 

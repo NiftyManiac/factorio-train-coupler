@@ -1,6 +1,6 @@
 {
   "name": "TrainCoupler",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "title": "Train Coupler",
   "author": "NiftyManiac",
   "description": "Adds a rail segment that couples and decouples train wagons",
