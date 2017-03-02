@@ -1,6 +1,6 @@
 mod_name = "TrainCoupler"
 debug_file = mod_name .. "_debug.txt"
-debug_status = 2
+debug_status = 1
 require "lib"
 
 --[[
