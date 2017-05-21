@@ -18,6 +18,7 @@ local recipe =
     ingredients =
     {
       {"rail", 1},
+      {"green-circuit", 1},
     },
     result = "coupler-rail"
 }
